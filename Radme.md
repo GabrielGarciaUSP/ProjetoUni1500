@@ -1,0 +1,1 @@
+Projeto para o curso da UNI1500, Chatbot de Vendas. 
