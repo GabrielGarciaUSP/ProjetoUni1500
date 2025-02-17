@@ -1,4 +1,3 @@
-# As importações e configurações iniciais permanecem as mesmas
 from flask import Flask, request, jsonify, render_template_string
 from flask_cors import CORS
 import random
@@ -7,13 +6,12 @@ app = Flask(__name__)
 CORS(app)
 
 HTML_TEMPLATE = '''
-<!-- O HEAD permanece o mesmo até o início do BODY -->
 <!DOCTYPE html>
 <html lang="pt-BR" class="dark">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ChatBot de vendas </title>
+    <title>ChatBot de vendas</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
         tailwind.config = {
@@ -30,9 +28,68 @@ HTML_TEMPLATE = '''
         }
     </script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            z-index: 1000;
+        }
+        
+        .modal-content {
+            animation: slideIn 0.3s ease-out;
+        }
+        
+        @keyframes slideIn {
+            from {
+                transform: translateY(-20px);
+                opacity: 0;
+            }
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
+        
+        .conversation-item {
+            transition: all 0.3s ease;
+        }
+        
+        .conversation-item:hover .edit-button {
+            opacity: 1;
+        }
+        
+        .edit-button {
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+    </style>
 </head>
 <body class="bg-darkPrimary text-gray-100">
-    <!-- A estrutura principal permanece a mesma -->
+    <!-- Modal de Renomeação -->
+    <div id="renameModal" class="modal flex items-center justify-center">
+        <div class="modal-content bg-darkSecondary rounded-lg p-6 w-96 shadow-xl">
+            <h3 class="text-xl font-bold mb-4">Renomear Conversa</h3>
+            <input type="text" id="newConversationName" 
+                class="w-full p-3 rounded-lg bg-darkPrimary border border-gray-700 text-gray-100 focus:outline-none focus:border-darkAccent mb-4"
+                placeholder="Digite o novo nome...">
+            <div class="flex justify-end gap-3">
+                <button onclick="closeRenameModal()" 
+                    class="px-4 py-2 rounded-lg bg-gray-700 hover:bg-gray-600 transition-colors duration-200">
+                    Cancelar
+                </button>
+                <button onclick="saveNewName()" 
+                    class="px-4 py-2 rounded-lg bg-darkAccent hover:bg-blue-600 transition-colors duration-200">
+                    Salvar
+                </button>
+            </div>
+        </div>
+    </div>
+
     <div class="flex h-screen">
         <!-- Sidebar -->
         <div class="w-80 bg-darkSecondary border-r border-gray-700">
@@ -48,7 +105,7 @@ HTML_TEMPLATE = '''
             </div>
         </div>
 
-        <!-- O resto da estrutura HTML permanece igual -->
+        <!-- Área principal do chat -->
         <div class="flex-1 flex flex-col bg-darkPrimary">
             <div class="p-4 border-b border-gray-700 bg-darkSecondary">
                 <h1 class="text-xl font-bold text-gray-100" id="currentConversationTitle">
@@ -79,32 +136,58 @@ HTML_TEMPLATE = '''
     <script>
         let conversations = [];
         let currentConversationId = null;
+        let conversationToRename = null;
+
+        // Carregar conversas do localStorage
+        function loadConversationsFromStorage() {
+            const saved = localStorage.getItem('conversations');
+            if (saved) {
+                conversations = JSON.parse(saved);
+                updateConversationsList();
+            }
+        }
+
+        // Salvar conversas no localStorage
+        function saveConversationsToStorage() {
+            localStorage.setItem('conversations', JSON.stringify(conversations));
+        }
 
         function createConversationElement(conversation) {
             const div = document.createElement('div');
-            div.className = `p-4 border-b border-gray-700 hover:bg-gray-700/50 cursor-pointer transition-colors duration-200 ${
+            div.className = `conversation-item p-4 border-b border-gray-700 hover:bg-gray-700/50 cursor-pointer transition-colors duration-200 ${
                 conversation.id === currentConversationId ? 'bg-gray-700' : ''
             }`;
             
-            // Container para o conteúdo e botão de delete
             const container = document.createElement('div');
             container.className = 'flex justify-between items-start';
             
-            // Container para título e preview
             const contentContainer = document.createElement('div');
             contentContainer.className = 'flex-1 cursor-pointer';
             contentContainer.onclick = () => loadConversation(conversation.id);
             
-            const title = document.createElement('div');
-            title.className = 'font-medium flex items-center gap-2';
-            title.innerHTML = `<i class="fas fa-message"></i> Conversa ${conversation.id}`;
+            const titleContainer = document.createElement('div');
+            titleContainer.className = 'font-medium flex items-center gap-2';
+            
+            const titleText = document.createElement('span');
+            titleText.textContent = conversation.title || `Conversa ${conversation.id}`;
+            titleText.className = 'flex-1';
+            
+            const editButton = document.createElement('button');
+            editButton.className = 'edit-button text-gray-400 hover:text-darkAccent transition-colors duration-200 p-1 ml-2';
+            editButton.innerHTML = '<i class="fas fa-edit"></i>';
+            editButton.onclick = (e) => {
+                e.stopPropagation();
+                openRenameModal(conversation);
+            };
+            
+            titleContainer.appendChild(titleText);
+            titleContainer.appendChild(editButton);
             
             const preview = document.createElement('div');
             preview.className = 'text-sm text-gray-400 truncate mt-1 ml-6';
             const lastMessage = conversation.messages[conversation.messages.length - 1];
             preview.textContent = lastMessage ? lastMessage.text : 'Nova conversa';
             
-            // Botão de delete
             const deleteButton = document.createElement('button');
             deleteButton.className = 'text-gray-400 hover:text-red-500 transition-colors duration-200 p-1';
             deleteButton.innerHTML = '<i class="fas fa-trash"></i>';
@@ -113,13 +196,45 @@ HTML_TEMPLATE = '''
                 deleteConversation(conversation.id);
             };
             
-            contentContainer.appendChild(title);
+            contentContainer.appendChild(titleContainer);
             contentContainer.appendChild(preview);
             container.appendChild(contentContainer);
             container.appendChild(deleteButton);
             div.appendChild(container);
             
             return div;
+        }
+
+        function openRenameModal(conversation) {
+            conversationToRename = conversation;
+            const modal = document.getElementById('renameModal');
+            const input = document.getElementById('newConversationName');
+            input.value = conversation.title || `Conversa ${conversation.id}`;
+            modal.style.display = 'flex';
+            input.focus();
+        }
+
+        function closeRenameModal() {
+            const modal = document.getElementById('renameModal');
+            modal.style.display = 'none';
+            conversationToRename = null;
+        }
+
+        function saveNewName() {
+            const input = document.getElementById('newConversationName');
+            const newName = input.value.trim();
+            
+            if (newName && newName.length <= 50) {
+                conversationToRename.title = newName;
+                updateConversationsList();
+                if (currentConversationId === conversationToRename.id) {
+                    updateCurrentConversationTitle(conversationToRename);
+                }
+                saveConversationsToStorage();
+                closeRenameModal();
+            } else {
+                alert('O nome deve ter entre 1 e 50 caracteres.');
+            }
         }
 
         function deleteConversation(id) {
@@ -135,17 +250,22 @@ HTML_TEMPLATE = '''
                     document.getElementById('sendButton').disabled = true;
                 }
                 
+                saveConversationsToStorage();
                 updateConversationsList();
             }
         }
 
-        // O resto do JavaScript permanece igual
         function updateConversationsList() {
             const list = document.getElementById('conversationsList');
             list.innerHTML = '';
             conversations.forEach(conv => {
                 list.appendChild(createConversationElement(conv));
             });
+        }
+
+        function updateCurrentConversationTitle(conversation) {
+            document.getElementById('currentConversationTitle').innerHTML = 
+                `<i class="fas fa-comments mr-2"></i> ${conversation.title || `Conversa ${conversation.id}`}`;
         }
 
         function addMessageToChat(text, isUser) {
@@ -180,8 +300,7 @@ HTML_TEMPLATE = '''
             currentConversationId = id;
             const conversation = conversations.find(c => c.id === id);
             
-            document.getElementById('currentConversationTitle').innerHTML = 
-                `<i class="fas fa-comments mr-2"></i> Conversa ${id}`;
+            updateCurrentConversationTitle(conversation);
             
             const chatArea = document.getElementById('chatArea');
             chatArea.innerHTML = '';
@@ -196,11 +315,13 @@ HTML_TEMPLATE = '''
         }
 
         function newConversation() {
-            const id = conversations.length + 1;
+            const id = (conversations.length > 0 ? Math.max(...conversations.map(c => c.id)) : 0) + 1;
             conversations.push({
                 id,
+                title: null,
                 messages: []
             });
+            saveConversationsToStorage();
             loadConversation(id);
         }
 
@@ -218,6 +339,7 @@ HTML_TEMPLATE = '''
             });
             
             messageInput.value = '';
+            saveConversationsToStorage();
             updateConversationsList();
 
             try {
@@ -240,6 +362,7 @@ HTML_TEMPLATE = '''
                     isUser: false
                 });
                 
+                saveConversationsToStorage();
                 updateConversationsList();
             } catch (error) {
                 addMessageToChat('Erro ao comunicar com o servidor', false);
@@ -252,21 +375,32 @@ HTML_TEMPLATE = '''
             }
         });
 
-        // Mensagem de boas-vindas
-        newConversation();
-        addMessageToChat("Olá! Sou seu assistente virtual. Como posso ajudar?", false);
+        document.getElementById('newConversationName').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                saveNewName();
+            }
+        });
+
+        // Carregar conversas salvas ao iniciar
+        loadConversationsFromStorage();
+
+        // Mensagem de boas-vindas se não houver conversas
+        if (conversations.length === 0) {
+            newConversation();
+            addMessageToChat("Olá! Sou seu assistente virtual. Como posso ajudar?", false);
+        }
     </script>
 </body>
 </html>
 '''
 
-# O resto do código Python permanece igual
 respostas = {
     "oi": [
         "Olá! Como posso ajudar?",
         "Oi! Tudo bem?",
         "Olá! Em que posso ser útil hoje?"
     ],
+
     "bom dia": [
         "Bom dia! Como posso ajudar?",
         "Bom dia! Espero que esteja tendo um ótimo dia!",
