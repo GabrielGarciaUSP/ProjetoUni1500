@@ -1,3 +1,4 @@
+# As importações e configurações iniciais permanecem as mesmas
 from flask import Flask, request, jsonify, render_template_string
 from flask_cors import CORS
 import random
@@ -6,12 +7,13 @@ app = Flask(__name__)
 CORS(app)
 
 HTML_TEMPLATE = '''
+<!-- O HEAD permanece o mesmo até o início do BODY -->
 <!DOCTYPE html>
 <html lang="pt-BR" class="dark">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ChatBot de Vendas</title>
+    <title>ChatBot de vendas </title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
         tailwind.config = {
@@ -30,6 +32,7 @@ HTML_TEMPLATE = '''
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
 </head>
 <body class="bg-darkPrimary text-gray-100">
+    <!-- A estrutura principal permanece a mesma -->
     <div class="flex h-screen">
         <!-- Sidebar -->
         <div class="w-80 bg-darkSecondary border-r border-gray-700">
@@ -45,9 +48,8 @@ HTML_TEMPLATE = '''
             </div>
         </div>
 
-        <!-- Chat principal -->
+        <!-- O resto da estrutura HTML permanece igual -->
         <div class="flex-1 flex flex-col bg-darkPrimary">
-            <!-- Cabeçalho -->
             <div class="p-4 border-b border-gray-700 bg-darkSecondary">
                 <h1 class="text-xl font-bold text-gray-100" id="currentConversationTitle">
                     <i class="fas fa-comments mr-2"></i>
@@ -55,12 +57,9 @@ HTML_TEMPLATE = '''
                 </h1>
             </div>
 
-            <!-- Área de mensagens -->
             <div id="chatArea" class="flex-1 overflow-y-auto p-6 space-y-4">
-                <!-- Mensagens aparecerão aqui -->
             </div>
 
-            <!-- Área de input -->
             <div class="p-4 bg-darkSecondary border-t border-gray-700">
                 <div class="flex gap-3">
                     <input type="text" id="messageInput" 
@@ -86,7 +85,15 @@ HTML_TEMPLATE = '''
             div.className = `p-4 border-b border-gray-700 hover:bg-gray-700/50 cursor-pointer transition-colors duration-200 ${
                 conversation.id === currentConversationId ? 'bg-gray-700' : ''
             }`;
-            div.onclick = () => loadConversation(conversation.id);
+            
+            // Container para o conteúdo e botão de delete
+            const container = document.createElement('div');
+            container.className = 'flex justify-between items-start';
+            
+            // Container para título e preview
+            const contentContainer = document.createElement('div');
+            contentContainer.className = 'flex-1 cursor-pointer';
+            contentContainer.onclick = () => loadConversation(conversation.id);
             
             const title = document.createElement('div');
             title.className = 'font-medium flex items-center gap-2';
@@ -97,11 +104,42 @@ HTML_TEMPLATE = '''
             const lastMessage = conversation.messages[conversation.messages.length - 1];
             preview.textContent = lastMessage ? lastMessage.text : 'Nova conversa';
             
-            div.appendChild(title);
-            div.appendChild(preview);
+            // Botão de delete
+            const deleteButton = document.createElement('button');
+            deleteButton.className = 'text-gray-400 hover:text-red-500 transition-colors duration-200 p-1';
+            deleteButton.innerHTML = '<i class="fas fa-trash"></i>';
+            deleteButton.onclick = (e) => {
+                e.stopPropagation();
+                deleteConversation(conversation.id);
+            };
+            
+            contentContainer.appendChild(title);
+            contentContainer.appendChild(preview);
+            container.appendChild(contentContainer);
+            container.appendChild(deleteButton);
+            div.appendChild(container);
+            
             return div;
         }
 
+        function deleteConversation(id) {
+            if (confirm('Tem certeza que deseja excluir esta conversa?')) {
+                conversations = conversations.filter(c => c.id !== id);
+                
+                if (currentConversationId === id) {
+                    currentConversationId = null;
+                    document.getElementById('currentConversationTitle').innerHTML = 
+                        '<i class="fas fa-comments mr-2"></i> Selecione ou inicie uma conversa';
+                    document.getElementById('chatArea').innerHTML = '';
+                    document.getElementById('messageInput').disabled = true;
+                    document.getElementById('sendButton').disabled = true;
+                }
+                
+                updateConversationsList();
+            }
+        }
+
+        // O resto do JavaScript permanece igual
         function updateConversationsList() {
             const list = document.getElementById('conversationsList');
             list.innerHTML = '';
@@ -222,6 +260,7 @@ HTML_TEMPLATE = '''
 </html>
 '''
 
+# O resto do código Python permanece igual
 respostas = {
     "oi": [
         "Olá! Como posso ajudar?",
