@@ -1,13 +1,173 @@
+from flask import Flask, request, jsonify, render_template_string
+from flask_cors import CORS
+import random
+
+app = Flask(__name__)
+CORS(app)
+
+HTML_TEMPLATE = '''
 <!DOCTYPE html>
-<html lang="pt-br">
+<html lang="pt-BR" class="dark">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Chatbot</title>
+    <title>ChatBot de vendas</title>
+    <script src="https://cdn.tailwindcss.com"></script>
 </head>
-<body>
-    <h2>Bem-vindo ao Chatbot!</h2>
-    <!-- Aqui você pode colocar o conteúdo do seu chatbot -->
-    <button onclick="window.location.href='/logout'">Sair</button>
+<body class="bg-gray-900 text-white">
+    <div class="flex h-screen">
+        <div class="w-1/4 bg-gray-800 p-4">
+            <h2 class="text-lg font-bold">Conversas</h2>
+            <ul id="conversations" class="mt-2"></ul>
+            <button onclick="newConversation()" class="mt-4 bg-blue-500 p-2 rounded">Nova Conversa</button>
+        </div>
+        <div class="flex-1 flex flex-col">
+            <div id="chat" class="flex-1 p-4 overflow-y-auto"></div>
+            <div class="p-4 bg-gray-800 flex items-center">
+                <input id="message" type="text" class="w-full p-2 rounded-l text-black" placeholder="Digite sua mensagem..." onkeydown="checkEnter(event)"/>
+                <button onclick="sendMessage()" class="ml-2 bg-green-500 p-2 rounded-r">Enviar</button>
+            </div>
+        </div>
+    </div>
+    <script>
+        let conversations = [];
+        let currentConversationId = null;
+
+        function newConversation() {
+            const title = prompt("Digite o título da nova conversa:");
+            if (!title) return;
+            const id = Date.now();
+            conversations.push({ id, title, messages: [] });
+            currentConversationId = id;
+            updateConversationsList();
+        }
+
+        function updateConversationsList() {
+            const list = document.getElementById('conversations');
+            list.innerHTML = '';
+            conversations.forEach((conv, index) => {
+                const li = document.createElement('li');
+                li.className = 'flex justify-between items-center cursor-pointer hover:text-blue-400 p-2';
+                
+                // Limita o tamanho do título para não ultrapassar a área
+                const titleSpan = document.createElement('span');
+                titleSpan.textContent = `${conv.title}`;
+                titleSpan.className = 'truncate'; // Adiciona o corte de texto
+                li.appendChild(titleSpan);
+
+                li.style.backgroundColor = index % 2 === 0 ? '#333' : '#444';
+                li.style.borderRadius = '8px';
+
+                const buttonContainer = document.createElement('div');
+                buttonContainer.className = 'flex space-x-2';
+                
+                const editBtn = document.createElement('button');
+                editBtn.textContent = 'Editar';
+                editBtn.className = 'bg-yellow-500 text-white p-1 rounded';
+                editBtn.onclick = (e) => {
+                    e.stopPropagation();
+                    editConversationTitle(conv.id);
+                };
+
+                const deleteBtn = document.createElement('button');
+                deleteBtn.textContent = 'Excluir';
+                deleteBtn.className = 'bg-red-500 text-white p-1 rounded';
+                deleteBtn.onclick = (e) => {
+                    e.stopPropagation();
+                    deleteConversation(conv.id);
+                };
+
+                buttonContainer.appendChild(editBtn);
+                buttonContainer.appendChild(deleteBtn);
+                li.appendChild(buttonContainer);
+                list.appendChild(li);
+            });
+        }
+
+        function loadConversation(id) {
+            currentConversationId = id;
+            const chat = document.getElementById('chat');
+            chat.innerHTML = '';
+            const conversation = conversations.find(c => c.id === id);
+            conversation.messages.forEach(msg => {
+                const div = document.createElement('div');
+                div.textContent = msg;
+                div.className = 'p-2 my-2 rounded bg-gray-700';
+                chat.appendChild(div);
+            });
+        }
+
+        async function sendMessage() {
+            const input = document.getElementById('message');
+            const text = input.value.trim();
+            if (!text || !currentConversationId) return;
+
+            const chat = document.getElementById('chat');
+            const div = document.createElement('div');
+            div.textContent = text;
+            div.className = 'p-2 my-2 rounded bg-blue-500 self-end';
+            chat.appendChild(div);
+            input.value = '';
+
+            const conversation = conversations.find(c => c.id === currentConversationId);
+            conversation.messages.push(text);
+
+            const response = await fetch('/chat', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ mensagem: text })
+            });
+            const data = await response.json();
+
+            const botDiv = document.createElement('div');
+            botDiv.textContent = data.resposta;
+            botDiv.className = 'p-2 my-2 rounded bg-gray-600';
+            chat.appendChild(botDiv);
+            conversation.messages.push(data.resposta);
+        }
+
+        function checkEnter(event) {
+            if (event.key === 'Enter') {
+                sendMessage();
+            }
+        }
+
+        function editConversationTitle(id) {
+            const newTitle = prompt("Digite o novo título da conversa:");
+            if (!newTitle) return;
+            const conversation = conversations.find(c => c.id === id);
+            conversation.title = newTitle;
+            updateConversationsList();
+        }
+
+        function deleteConversation(id) {
+            conversations = conversations.filter(c => c.id !== id);
+            updateConversationsList();
+            if (currentConversationId === id) {
+                currentConversationId = null;
+                document.getElementById('chat').innerHTML = '';
+            }
+        }
+    </script>
 </body>
 </html>
+
+respostas = {
+    "oi": ["Olá! Como posso ajudar?", "Oi! Tudo bem?"],
+    "bom dia": ["Bom dia! Como posso ajudar?"],
+    "qual o seu nome?": ["Sou um chatbot de vendas!", "Me chamo Assistente Virtual."]
+}
+
+@app.route('/')
+def index():
+    return render_template_string(HTML_TEMPLATE)
+
+@app.route('/chat', methods=['POST'])
+def chat():
+    dados = request.get_json()
+    mensagem = dados.get("mensagem", "").lower()
+    resposta = respostas.get(mensagem, ["Desculpe, não entendi."])
+    return jsonify({"resposta": random.choice(resposta)})
+
+if __name__ == '__main__':
+    app.run(debug=True)
