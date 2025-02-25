@@ -1,174 +1,116 @@
-from flask import Flask, request, jsonify, render_template_string
+from flask import Flask, request, jsonify, session, redirect, url_for, render_template
+from flask_sqlalchemy import SQLAlchemy
+from flask_bcrypt import Bcrypt
 from flask_cors import CORS
-import random
+from datetime import timedelta
 
 app = Flask(__name__)
 CORS(app)
+app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://postgres:zikinha1575@localhost/ChatBotVendas'
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config['SECRET_KEY'] = 'sua_chave_secreta'
 
-HTML_TEMPLATE = '''
-<!DOCTYPE html>
-<html lang="pt-BR" class="dark">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ChatBot de vendas</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-</head>
-<body class="bg-gray-900 text-white">
-    <div class="flex h-screen">
-        <div class="w-1/4 bg-gray-800 p-4">
-            <h2 class="text-lg font-bold">Conversas</h2>
-            <ul id="conversations" class="mt-2"></ul>
-            <button onclick="newConversation()" class="mt-4 bg-blue-500 p-2 rounded">Nova Conversa</button>
-        </div>
-        <div class="flex-1 flex flex-col">
-            <div id="chat" class="flex-1 p-4 overflow-y-auto"></div>
-            <div class="p-4 bg-gray-800 flex items-center">
-                <input id="message" type="text" class="w-full p-2 rounded-l text-black" placeholder="Digite sua mensagem..." onkeydown="checkEnter(event)"/>
-                <button onclick="sendMessage()" class="ml-2 bg-green-500 p-2 rounded-r">Enviar</button>
-            </div>
-        </div>
-    </div>
-    <script>
-        let conversations = [];
-        let currentConversationId = null;
+# Define o tempo de expiração da sessão para 30 minutos (opcional)
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(minutes=30)
 
-        function newConversation() {
-            const title = prompt("Digite o título da nova conversa:");
-            if (!title) return;
-            const id = Date.now();
-            conversations.push({ id, title, messages: [] });
-            currentConversationId = id;
-            updateConversationsList();
-        }
+db = SQLAlchemy(app)
+bcrypt = Bcrypt(app)
 
-        function updateConversationsList() {
-            const list = document.getElementById('conversations');
-            list.innerHTML = '';
-            conversations.forEach((conv, index) => {
-                const li = document.createElement('li');
-                li.className = 'flex justify-between items-center cursor-pointer hover:text-blue-400 p-2';
-                
-                // Limita o tamanho do título para não ultrapassar a área
-                const titleSpan = document.createElement('span');
-                titleSpan.textContent = `${conv.title}`;
-                titleSpan.className = 'truncate'; // Adiciona o corte de texto
-                li.appendChild(titleSpan);
+# Modelos
+class Usuario(db.Model):
+    id_usuario = db.Column(db.Integer, primary_key=True)
+    nome = db.Column(db.String(100), nullable=False)
+    email = db.Column(db.String(100), unique=True, nullable=False)
+    senha = db.Column(db.String(200), nullable=False)
+    conversas = db.relationship('Conversa', backref='usuario', lazy=True)
 
-                li.style.backgroundColor = index % 2 === 0 ? '#333' : '#444';
-                li.style.borderRadius = '8px';
+class Conversa(db.Model):
+    id_conversa = db.Column(db.Integer, primary_key=True)
+    titulo = db.Column(db.String(200), nullable=False)
+    status = db.Column(db.String(50), default='aberta')
+    id_usuario = db.Column(db.Integer, db.ForeignKey('usuario.id_usuario'), nullable=False)
+    mensagens = db.relationship('Mensagem', backref='conversa', lazy=True)
 
-                const buttonContainer = document.createElement('div');
-                buttonContainer.className = 'flex space-x-2';
-                
-                const editBtn = document.createElement('button');
-                editBtn.textContent = 'Editar';
-                editBtn.className = 'bg-yellow-500 text-white p-1 rounded';
-                editBtn.onclick = (e) => {
-                    e.stopPropagation();
-                    editConversationTitle(conv.id);
-                };
+class Mensagem(db.Model):
+    id_mensagem = db.Column(db.Integer, primary_key=True)
+    conteudo = db.Column(db.Text, nullable=False)
+    data_envio = db.Column(db.DateTime, server_default=db.func.now())
+    remetente = db.Column(db.String(50), nullable=False)
+    conversa_id = db.Column(db.Integer, db.ForeignKey('conversa.id_conversa'), nullable=False)
 
-                const deleteBtn = document.createElement('button');
-                deleteBtn.textContent = 'Excluir';
-                deleteBtn.className = 'bg-red-500 text-white p-1 rounded';
-                deleteBtn.onclick = (e) => {
-                    e.stopPropagation();
-                    deleteConversation(conv.id);
-                };
-
-                buttonContainer.appendChild(editBtn);
-                buttonContainer.appendChild(deleteBtn);
-                li.appendChild(buttonContainer);
-                list.appendChild(li);
-            });
-        }
-
-        function loadConversation(id) {
-            currentConversationId = id;
-            const chat = document.getElementById('chat');
-            chat.innerHTML = '';
-            const conversation = conversations.find(c => c.id === id);
-            conversation.messages.forEach(msg => {
-                const div = document.createElement('div');
-                div.textContent = msg;
-                div.className = 'p-2 my-2 rounded bg-gray-700';
-                chat.appendChild(div);
-            });
-        }
-
-        async function sendMessage() {
-            const input = document.getElementById('message');
-            const text = input.value.trim();
-            if (!text || !currentConversationId) return;
-
-            const chat = document.getElementById('chat');
-            const div = document.createElement('div');
-            div.textContent = text;
-            div.className = 'p-2 my-2 rounded bg-blue-500 self-end';
-            chat.appendChild(div);
-            input.value = '';
-
-            const conversation = conversations.find(c => c.id === currentConversationId);
-            conversation.messages.push(text);
-
-            const response = await fetch('/chat', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ mensagem: text })
-            });
-            const data = await response.json();
-
-            const botDiv = document.createElement('div');
-            botDiv.textContent = data.resposta;
-            botDiv.className = 'p-2 my-2 rounded bg-gray-600';
-            chat.appendChild(botDiv);
-            conversation.messages.push(data.resposta);
-        }
-
-        function checkEnter(event) {
-            if (event.key === 'Enter') {
-                sendMessage();
-            }
-        }
-
-        function editConversationTitle(id) {
-            const newTitle = prompt("Digite o novo título da conversa:");
-            if (!newTitle) return;
-            const conversation = conversations.find(c => c.id === id);
-            conversation.title = newTitle;
-            updateConversationsList();
-        }
-
-        function deleteConversation(id) {
-            conversations = conversations.filter(c => c.id !== id);
-            updateConversationsList();
-            if (currentConversationId === id) {
-                currentConversationId = null;
-                document.getElementById('chat').innerHTML = '';
-            }
-        }
-    </script>
-</body>
-</html>
-'''
-
-respostas = {
-    "oi": ["Olá! Como posso ajudar?", "Oi! Tudo bem?"],
-    "bom dia": ["Bom dia! Como posso ajudar?"],
-    "qual o seu nome?": ["Sou um chatbot de vendas!", "Me chamo Assistente Virtual."]
-}
+# Criar banco de dados
+with app.app_context():
+    db.create_all()
 
 @app.route('/')
-def index():
-    return render_template_string(HTML_TEMPLATE)
+def home():
+    if 'usuario_id' not in session:
+        print("Usuário não logado, redirecionando para login.")  # Para depuração
+        return redirect(url_for('login'))  # Redireciona para login se não estiver logado
+    print(f"Usuário logado, id: {session['usuario_id']}")  # Para depuração
+    return render_template('chatbot.html')  # Página do chatbot só será acessada se o usuário estiver logado
 
-@app.route('/chat', methods=['POST'])
-def chat():
-    dados = request.get_json()
-    mensagem = dados.get("mensagem", "").lower()
-    resposta = respostas.get(mensagem, ["Desculpe, não entendi."])
-    return jsonify({"resposta": random.choice(resposta)})
+# Rota de cadastro
+@app.route('/register', methods=['POST'])
+def register():
+    data = request.get_json()
+    if not data.get('nome') or not data.get('email') or not data.get('senha'):
+        return jsonify({'message': 'Todos os campos são obrigatórios'}), 400
+    
+    if Usuario.query.filter_by(email=data['email']).first():
+        return jsonify({'message': 'Email já cadastrado'}), 400
+    
+    senha_hash = bcrypt.generate_password_hash(data['senha']).decode('utf-8')
+    novo_usuario = Usuario(nome=data['nome'], email=data['email'], senha=senha_hash)
+    db.session.add(novo_usuario)
+    db.session.commit()
+    return jsonify({'message': 'Usuário cadastrado com sucesso'})
+
+# Rota de login
+@app.route('/login', methods=['POST'])
+def login():
+    data = request.form
+    usuario = Usuario.query.filter_by(email=data.get('email')).first()
+    if usuario and bcrypt.check_password_hash(usuario.senha, data.get('senha')):
+        session['usuario_id'] = usuario.id_usuario
+        # Não definimos session.permanent para não manter a sessão após o fechamento do navegador
+        print(f"Usuário logado: {usuario.id_usuario}")  # Para depuração
+        return redirect(url_for('home'))  # Redireciona para a página principal do chatbot após o login
+    print("Credenciais inválidas.")  # Verifique se chegou aqui
+    return jsonify({'message': 'Credenciais inválidas'}), 401
+
+# Rota de logout
+@app.route('/logout', methods=['POST'])
+def logout():
+    session.pop('usuario_id', None)  # Remove a sessão manualmente
+    print("Usuário deslogado.")  # Para depuração
+    return redirect(url_for('home'))  # Redireciona para a tela inicial
+
+# Rota para criar uma nova conversa
+@app.route('/conversas', methods=['POST'])
+def criar_conversa():
+    if 'usuario_id' not in session:
+        return jsonify({'message': 'Não autorizado'}), 401
+    data = request.get_json()
+    nova_conversa = Conversa(titulo=data['titulo'], id_usuario=session['usuario_id'])
+    db.session.add(nova_conversa)
+    db.session.commit()
+    return jsonify({'message': 'Conversa criada com sucesso', 'id_conversa': nova_conversa.id_conversa})
+
+# Rota para enviar mensagem
+@app.route('/mensagens', methods=['POST'])
+def enviar_mensagem():
+    if 'usuario_id' not in session:
+        return jsonify({'message': 'Não autorizado'}), 401
+    data = request.get_json()
+    nova_mensagem = Mensagem(
+        conteudo=data['conteudo'],
+        remetente='usuario',
+        conversa_id=data['conversa_id']
+    )
+    db.session.add(nova_mensagem)
+    db.session.commit()
+    return jsonify({'message': 'Mensagem enviada'})
 
 if __name__ == '__main__':
     app.run(debug=True)
